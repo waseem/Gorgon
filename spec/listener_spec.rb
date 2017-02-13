@@ -1,61 +1,21 @@
 require 'gorgon/listener'
 
-describe Listener do
+describe Gorgon::Listener do
   let(:connection_information) { double }
   let(:queue) { double("GorgonBunny Queue", :bind => nil, :name => "some supposedly unique string") }
   let(:exchange) { double("GorgonBunny Exchange", :publish => nil) }
   let(:bunny) { double("GorgonBunny", :start => nil, :queue => queue, :exchange => exchange) }
-  let(:logger) { double("Logger", :info => true, :datetime_format= => "")}
+  let(:logger) { double("Logger", :log_error => nil, :log => nil) }
+  let(:listener) { Gorgon::Listener.new }
 
   before do
-    Logger.stub(:new).and_return(logger)
+    Gorgon::GLogger.stub(:new).with("logfile.log").and_return(logger)
     GorgonBunny.stub(:new).and_return(bunny)
-    Listener.any_instance.stub(:configuration => {})
-    Listener.any_instance.stub(:connection_information => connection_information)
-  end
-
-  describe "logging to a file" do
-    context "passing a log file path in the configuration" do
-      before do
-        Listener.any_instance.stub(:configuration).and_return({:log_file => 'listener.log'})
-      end
-
-      it "should use 'log_file' from the configuration as the log file" do
-        Logger.should_receive(:new).with('listener.log', anything, anything)
-        Listener.new
-      end
-
-      it "should log to 'log_file'" do
-        logger.should_receive(:info).with(/Listener.*initializing/)
-
-        Listener.new
-      end
-    end
-
-    context "passing a literal '-'' as the path in the configuration" do
-      before do
-        Listener.any_instance.stub(:configuration).and_return({:log_file => "-"})
-      end
-
-      it "logs to stdout" do
-        Logger.should_receive(:new).with($stdout)
-        Listener.new
-      end
-    end
-
-    context "without specifying a log file path" do
-      it "should not log" do
-        Logger.should_not_receive(:new)
-        logger.should_not_receive(:info)
-
-        Listener.new
-      end
-    end
+    Gorgon::Listener.any_instance.stub(:configuration => {:log_file => "logfile.log"})
+    Gorgon::Listener.any_instance.stub(:connection_information => connection_information)
   end
 
   context "initialized" do
-    let(:listener) { Listener.new }
-
     describe "#connect" do
       it "connects" do
         GorgonBunny.should_receive(:new).with(connection_information).and_return(bunny)
@@ -74,7 +34,7 @@ describe Listener do
       end
 
       it "builds job_exchange_name using cluster_id from configuration" do
-        Listener.any_instance.stub(:configuration).and_return(:cluster_id => 'cluster5')
+        Gorgon::Listener.any_instance.stub(:configuration).and_return(:cluster_id => 'cluster5', :log_file => 'logfile.log')
         bunny.should_receive(:exchange).with('gorgon.jobs.cluster5', anything).and_return(exchange)
         listener.initialize_personal_job_queue
       end
@@ -91,14 +51,13 @@ describe Listener do
         originator_exchange = double
 
         bunny.should_receive(:exchange).with("gorgon.originators", :type => :fanout).and_return(originator_exchange)
-        originator_exchange.should_receive(:publish).with({:listener_queue_name => "some supposedly unique string"}.to_json)
+        originator_exchange.should_receive(:publish).with(Yajl::Encoder.encode({:listener_queue_name => "some supposedly unique string"}))
 
         listener.announce_readiness_to_originators
       end
     end
 
     describe "#poll" do
-
       let(:empty_queue) { [nil, nil, nil] }
       let(:job_payload) { [nil, nil, Yajl::Encoder.encode({:type => "job_definition"})] }
       before do
@@ -187,22 +146,26 @@ describe Listener do
                           :remove_temp_dir => nil, :sys_command => "rsync ...")}
       let(:process_status) { double("Process Status", :exitstatus => 0)}
       let(:callback_handler) { double("Callback Handler", :after_sync => nil) }
-      let(:stdin) { double("IO object", :write => nil, :close => nil)}
-      let(:stdout) { double("IO object", :read => nil, :close => nil)}
-      let(:stderr) { double("IO object", :read => nil, :close => nil)}
+      let(:worker_manager_forker) { double("Worker Manager Forker") }
+      let(:job_definition) { {
+        :type => "job_definition",
+        :file_queue_name => nil,
+        :reply_exchange_name => nil,
+      }.merge(payload) }
 
       before do
         stub_classes
-        @listener = Listener.new
       end
 
-      it "copy source tree" do
+      it "copies source code" do
+        worker_manager_forker.should_receive(:process).with(Yajl::Encoder.encode(job_definition))
         SourceTreeSyncer.should_receive(:new).once.
           with(source_tree_path: "path/to/source", exclude: ["log"]).
           and_return(syncer)
         syncer.should_receive(:sync)
         syncer.should_receive(:success?).and_return(true)
-        @listener.run_job(payload)
+
+        listener.run_job(payload)
       end
 
       context "syncer#sync fails" do
@@ -210,46 +173,36 @@ describe Listener do
           syncer.stub(:success?).and_return false
           syncer.stub(:output).and_return "some output"
           syncer.stub(:errors).and_return "some errors"
+          worker_manager_forker.should_not_receive(:process).with(anything)
         end
 
         it "aborts current job" do
           callback_handler.should_not_receive(:after_sync)
-          @listener.run_job(payload)
+          listener.run_job(payload)
         end
 
         it "sends message to originator with output and errors from syncer" do
-          @listener.should_receive(:send_crash_message).with exchange, "some output", "some errors"
-          @listener.run_job(payload)
-        end
-      end
-
-      context "Worker Manager crashes" do
-        before do
-          process_status.should_receive(:exitstatus).and_return 2, 2
-        end
-
-        it "report_crash with pid, exitstatus, stdout and stderr outputs" do
-          @listener.should_receive(:report_crash).with(exchange,
-                                                       :out_file => WorkerManager::STDOUT_FILE,
-                                                       :err_file => WorkerManager::STDERR_FILE,
-                                                       :footer_text => Listener::ERROR_FOOTER_TEXT)
-          @listener.run_job(payload)
+          listener.should_receive(:send_crash_message).with exchange, "some output", "some errors"
+          listener.run_job(payload)
         end
       end
 
       it "remove temp source directory when complete" do
+        worker_manager_forker.should_receive(:process).with(Yajl::Encoder.encode(job_definition))
         syncer.should_receive(:remove_temp_dir)
-        @listener.run_job(payload)
+        listener.run_job(payload)
       end
 
       it "creates a CallbackHandler object using callbacks passed in payload" do
+        worker_manager_forker.should_receive(:process).with(Yajl::Encoder.encode(job_definition))
         CallbackHandler.should_receive(:new).once.with({:a_callback => "path/to/callback"}).and_return(callback_handler)
-        @listener.run_job(payload)
+        listener.run_job(payload)
       end
 
       it "calls after_sync callback" do
+        worker_manager_forker.should_receive(:process).with(Yajl::Encoder.encode(job_definition))
         callback_handler.should_receive(:after_sync).once
-        @listener.run_job(payload)
+        listener.run_job(payload)
       end
     end
 
@@ -258,8 +211,7 @@ describe Listener do
     def stub_classes
       SourceTreeSyncer.stub(:new).and_return syncer
       CallbackHandler.stub(:new).and_return callback_handler
-      Open4.stub(:popen4).and_return([1, stdin, stdout, stderr])
-      Process.stub(:waitpid2).and_return([0, process_status])
+      Gorgon::WorkerManagerForker.stub(:new).and_return worker_manager_forker
       Socket.stub(:gethostname).and_return("hostname")
     end
   end

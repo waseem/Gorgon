@@ -1,6 +1,6 @@
 require 'gorgon/originator'
 
-describe Originator do
+describe Gorgon::Originator do
   let(:protocol){ double("Originator Protocol", :connect => nil, :publish_files => nil,
     :publish_job_to_all => nil, :publish_job_to_one => nil, :receive_payloads => nil, :cancel_job => nil,
     :disconnect => nil, :receive_new_listener_notifications => nil)}
@@ -15,10 +15,10 @@ describe Originator do
   let(:job_definition){ JobDefinition.new }
 
   before do
-    OriginatorLogger.stub(:new).and_return originator_logger
+    Gorgon::OriginatorLogger.stub(:new).and_return originator_logger
     SourceTreeSyncer.stub(:new).and_return source_tree_syncer
     Dir.stub(:[]).and_return(["file"])
-    @originator = Originator.new
+    @originator = Gorgon::Originator.new
   end
 
   describe "#publish" do
@@ -34,19 +34,19 @@ describe Originator do
     end
 
     it "propagates the success result of handle_reply" do
-      @originator.publish.should eq Originator::SPEC_SUCCESS_EXIT_STATUS
+      @originator.publish.should eq Gorgon::Originator::SPEC_SUCCESS_EXIT_STATUS
     end
 
     it "propagates the error result of handle_reply" do
       OriginatorProtocol.should_receive(:new).and_return(protocol)
       protocol.should_receive(:receive_payloads).and_yield(Yajl::Encoder.encode({:type => 'fail'}))
 
-      @originator.publish.should eq Originator::SPEC_FAILURE_EXIT_STATUS
+      @originator.publish.should eq Gorgon::Originator::SPEC_FAILURE_EXIT_STATUS
     end
 
     it "creates a ProgressBarView and show" do
       JobState.stub(:new).and_return job_state
-      ProgressBarView.should_receive(:new).with(job_state).and_return progress_bar_view
+      Gorgon::ProgressBarView.should_receive(:new).with(job_state).and_return progress_bar_view
       progress_bar_view.should_receive(:show)
       @originator.publish
     end
@@ -151,25 +151,25 @@ describe Originator do
 
     it "returns SPEC_SUCCESS_EXIT_STATUS when payload[:action] is start" do
       job_state.stub(:file_started)
-      @originator.handle_reply(start_payload).should eq Originator::SPEC_SUCCESS_EXIT_STATUS
+      @originator.handle_reply(start_payload).should eq Gorgon::Originator::SPEC_SUCCESS_EXIT_STATUS
     end
 
     it "returns SPEC_SUCCESS_EXIT_STATUS when payload[:action] is finish" do
       job_state.stub(:file_finished)
-      @originator.handle_reply(finish_payload).should eq Originator::SPEC_SUCCESS_EXIT_STATUS
+      @originator.handle_reply(finish_payload).should eq Gorgon::Originator::SPEC_SUCCESS_EXIT_STATUS
     end
 
     it "returns SPEC_FAILURE_EXIT_STATUS when payload[:action] is crash" do
       job_state.stub(:gorgon_crash_message)
-      @originator.handle_reply(Yajl::Encoder.encode(gorgon_crash_message)).should eq Originator::SPEC_FAILURE_EXIT_STATUS
+      @originator.handle_reply(Yajl::Encoder.encode(gorgon_crash_message)).should eq Gorgon::Originator::SPEC_FAILURE_EXIT_STATUS
     end
 
     it "returns SPEC_FAILURE_EXIT_STATUS when payload[:action] is exception" do
-      @originator.handle_reply(Yajl::Encoder.encode({:type => 'exception'})).should eq Originator::SPEC_FAILURE_EXIT_STATUS
+      @originator.handle_reply(Yajl::Encoder.encode({:type => 'exception'})).should eq Gorgon::Originator::SPEC_FAILURE_EXIT_STATUS
     end
 
     it "returns SPEC_FAILURE_EXIT_STATUS when payload[:action] is fail" do
-      @originator.handle_reply(Yajl::Encoder.encode({:type => 'fail'})).should eq Originator::SPEC_FAILURE_EXIT_STATUS
+      @originator.handle_reply(Yajl::Encoder.encode({:type => 'fail'})).should eq Gorgon::Originator::SPEC_FAILURE_EXIT_STATUS
     end
 
     it "calls cleanup_if_job_complete" do
@@ -204,7 +204,7 @@ describe Originator do
       @originator.publish
 
       protocol.should_receive(:publish_job_to_one).with(job_definition, 'abcd1234')
-      @originator.handle_new_listener_notification({:listener_queue_name => 'abcd1234'}.to_json)
+      @originator.handle_new_listener_notification(Yajl::Encoder.encode({:listener_queue_name => 'abcd1234'}))
     end
   end
 
@@ -240,7 +240,7 @@ describe Originator do
 
   def stub_methods
     EventMachine.stub(:run).and_yield
-    ProgressBarView.stub(:new).and_return progress_bar_view
+    Gorgon::ProgressBarView.stub(:new).and_return progress_bar_view
     OriginatorProtocol.stub(:new).and_return protocol
     @originator.stub(:configuration).and_return configuration
     @originator.stub(:connection_information).and_return 'host'

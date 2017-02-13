@@ -1,11 +1,12 @@
 require 'gorgon/originator_logger'
 
-describe OriginatorLogger do
-  before do
-    OriginatorLogger.any_instance.stub(:initialize_logger)
-  end
+describe Gorgon::OriginatorLogger do
+  let(:logger) { double("Logger") }
+  let(:originator_logger) { Gorgon::OriginatorLogger.new("logfile.log") }
 
-  let (:originator_logger) { OriginatorLogger.new "" }
+  before do
+    Gorgon::GLogger.stub(:new).with("logfile.log").and_return(logger)
+  end
 
   describe "#log_message" do
     it "prints start messages" do
@@ -13,7 +14,8 @@ describe OriginatorLogger do
                  :hostname => "host",
                  :filename => "filename",
                  :worker_id => "a_worker_id"}
-      originator_logger.should_receive(:log).with("Started running 'filename' at 'host:a_worker_id'")
+      logger.should_receive(:log).with("Started running 'filename' at 'host:a_worker_id'")
+
       originator_logger.log_message(payload)
     end
 
@@ -22,7 +24,8 @@ describe OriginatorLogger do
                  :hostname => "host",
                  :filename => "filename",
                  :worker_id => "a_worker_id"}
-      originator_logger.should_receive(:log).with("Finished running 'filename' at 'host:a_worker_id'")
+      logger.should_receive(:log).with("Finished running 'filename' at 'host:a_worker_id'")
+
       originator_logger.log_message(payload)
     end
 
@@ -36,7 +39,7 @@ describe OriginatorLogger do
                    "failure"
                  ]}
 
-      originator_logger.should_receive(:log).with("Finished running 'filename' at 'host:a_worker_id'failure\n")
+      logger.should_receive(:log).with("Finished running 'filename' at 'host:a_worker_id'failure\n")
       originator_logger.log_message(payload)
     end
   end

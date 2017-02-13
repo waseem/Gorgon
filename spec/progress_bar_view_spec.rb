@@ -1,7 +1,7 @@
 require 'gorgon/progress_bar_view'
 require 'gorgon/job_state'
 
-describe ProgressBarView do
+describe Gorgon::ProgressBarView do
   before do
     EventMachine::PeriodicTimer.stub(:new)
   end
@@ -10,14 +10,14 @@ describe ProgressBarView do
     it "adds itself to observers of job_state" do
       job_state = JobState.new 1
       job_state.should_receive(:add_observer)
-      ProgressBarView.new job_state
+      Gorgon::ProgressBarView.new job_state
     end
   end
 
   describe "#show" do
     before do
       job_state = JobState.new 1
-      @progress_bar_view = ProgressBarView.new job_state
+      @progress_bar_view = Gorgon::ProgressBarView.new job_state
     end
 
     it "prints in console gorgon's version and that is loading workers" do
@@ -40,7 +40,7 @@ describe ProgressBarView do
       ProgressBar.stub(:create).and_return progress_bar
       @job_state = JobState.new 2
       @job_state.stub(:state).and_return :running
-      @progress_bar_view = ProgressBarView.new @job_state
+      @progress_bar_view = Gorgon::ProgressBarView.new @job_state
       $stdout.stub(:write)
       @progress_bar_view.show
     end

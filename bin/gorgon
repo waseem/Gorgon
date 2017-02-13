@@ -15,12 +15,12 @@ require 'gorgon/settings/initial_files_creator'
 WELCOME_MSG = "Welcome to Gorgon #{Gorgon::VERSION}"
 
 def start
-  o = Originator.new
+  o = Gorgon::Originator.new
   exit o.originate
 end
 
 def listen
-  l = Listener.new
+  l = Gorgon::Listener.new
   l.listen
 end
 
@@ -39,7 +39,7 @@ end
 def manage_workers
   config_path = ENV["GORGON_CONFIG_PATH"]
 
-  manager = WorkerManager.build config_path
+  manager = Gorgon::WorkerManager.build config_path
   manager.manage
 
   # For some reason I have to 'exit' here, otherwise WorkerManager process crashes
@@ -47,11 +47,11 @@ def manage_workers
 end
 
 def ping_listeners
-  PingService.new.ping_listeners
+  Gorgon::PingService.new.ping_listeners
 end
 
 def run_gem command
-  GemService.new.run command
+  Gorgon::GemService.new.run command
 end
 
 def init framework

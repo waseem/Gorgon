@@ -11,15 +11,16 @@ class FakeAmqp
   end
 end
 
-describe Worker do
+describe Gorgon::Worker do
   WORKER_ID = 1
   let(:file_queue) { double("Queue") }
   let(:reply_exchange) { double("Exchange", :publish => nil) }
-  let(:fake_amqp) { fake_amqp = FakeAmqp.new file_queue, reply_exchange }
+  let(:fake_amqp) { FakeAmqp.new file_queue, reply_exchange }
   let(:callback_handler) { double("Callback Handler", :before_start => nil, :after_complete => nil) }
   let(:job_definition) {double("JobDefinition", :callbacks => ["/path/to/callback"],
                              :file_queue_name => "queue",
                              :reply_exchange_name => "exchange")}
+  let(:logger) { double("Logger", :log => nil) }
 
   let(:params) {
     {
@@ -32,47 +33,51 @@ describe Worker do
     }
   }
 
+  before do
+    Gorgon::GLogger.stub(:new).and_return(logger)
+  end
+
   describe ".build" do
     let(:config) { {:connection => "", :log_file => "path/to/log_file"} }
     before do
       stub_streams
       AmqpService.stub(:new).and_return fake_amqp
       CallbackHandler.stub(:new).and_return callback_handler
-      Worker.stub(:new)
+      Gorgon::Worker.stub(:new)
     end
 
     it "redirects output to a file since writing to a pipe may block when pipe is full" do
-      File.should_receive(:open).with(Worker.output_file(1, :out), 'w').and_return(:file1)
+      File.should_receive(:open).with(Gorgon::Worker.output_file(1, :out), 'w').and_return(:file1)
       STDOUT.should_receive(:reopen).with(:file1)
-      File.should_receive(:open).with(Worker.output_file(1, :err), 'w').and_return(:file2)
+      File.should_receive(:open).with(Gorgon::Worker.output_file(1, :err), 'w').and_return(:file2)
       STDERR.should_receive(:reopen).with(:file2)
-      Worker.build 1, config
+      Gorgon::Worker.build 1, config
     end
 
     it "use STDOUT#sync to flush output immediately so if an exception happens, we can grab the last\
 few lines of output and send it to originator. Order matters" do
       STDOUT.should_receive(:reopen).once.ordered
       STDOUT.should_receive(:sync=).with(true).once.ordered
-      Worker.build 1, config
+      Gorgon::Worker.build 1, config
     end
 
     it "use STDERR#sync to flush output immediately so if an exception happens, we can grab the last\
 few lines of output and send it to originator. Order matters" do
       STDERR.should_receive(:reopen).once.ordered
       STDERR.should_receive(:sync=).with(true).once.ordered
-      Worker.build 1, config
+      Gorgon::Worker.build 1, config
     end
 
     it "creates a JobDefinition using a payload written to stdin" do
       STDIN.should_receive(:read).and_return '{ "key": "value" }'
       JobDefinition.should_receive(:new).with({:key => "value"}).and_return job_definition
-      Worker.build 1, config
+      Gorgon::Worker.build 1, config
     end
 
     it "creates a new worker" do
       JobDefinition.stub(:new).and_return job_definition
-      Worker.should_receive(:new).with(params)
-      Worker.build 1, config
+      Gorgon::Worker.should_receive(:new).with(params)
+      Gorgon::Worker.build 1, config
     end
   end
 
@@ -80,9 +85,8 @@ few lines of output and send it to originator. Order matters" do
     before do
       stub_const("MiniTestRunner", :mini_test_runner)
       stub_const("MiniTest", :test)
-      Worker.any_instance.stub(:initialize_logger)
-      @worker = Worker.new params
-      @worker.stub(:require_relative)
+      Gorgon::Worker.any_instance.stub(:initialize_logger)
+      @worker = Gorgon::Worker.new params
     end
 
     it 'should do nothing if the file queue is empty' do
